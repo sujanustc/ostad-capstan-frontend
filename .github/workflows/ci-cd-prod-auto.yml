@@ -69,10 +69,16 @@ jobs:
           git push origin HEAD:${{ github.event.pull_request.head.ref || github.ref_name }} || echo "Push skipped or branch protected"
 
       - name: Send Telegram Alert (Optional Bonus)
-        if: ${{ secrets.TELEGRAM_BOT_TOKEN != '' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          MESSAGE="🚀 *Frontend Production Auto-Deploy Triggered!*%0A%0A*Repo*: ostad-capstan-frontend%0A*PR Target*: prod%0A*Image Tag*: \`${{ steps.vars.outputs.TAG }}\`%0A*Status*: Deployed & Argo CD Auto-Syncing!"
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d "text=${MESSAGE}" \
-            -d "parse_mode=Markdown" || true
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            MESSAGE="🚀 *Frontend Production Auto-Deploy Triggered!*%0A%0A*Repo*: ostad-capstan-frontend%0A*PR Target*: prod%0A*Image Tag*: \`${{ steps.vars.outputs.TAG }}\`%0A*Status*: Deployed & Argo CD Auto-Syncing!"
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              -d "text=${MESSAGE}" \
+              -d "parse_mode=Markdown" || true
+          else
+            echo "Telegram credentials not provided, skipping notification."
+          fi
