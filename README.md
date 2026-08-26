@@ -8,6 +8,14 @@
 
 ---
 
+## 🖼️ LIVE APPLICATION DEMONSTRATION
+
+![Support Chat Live Application](docs/images/live_app.png)
+
+*Figure 1: Live Support Chat application running on Kubernetes across AWS EC2 (`http://13.203.161.35:30022`).*
+
+---
+
 ## 📄 WRITTEN ENGINEERING NOTE: DECISIONS & RATIONALE
 
 This document serves as the official project submission note explaining the architectural and engineering decisions made throughout the delivery pipeline implementation.
