@@ -1,105 +1,102 @@
-# Support Chat — Frontend
+# DEVOPS PRACTICAL ASSIGNMENT — CI/CD, CONTAINERIZATION & GITOPS DELIVERY
 
-A fully responsive, anonymous customer-support chat widget built with React, TypeScript, Vite, Tailwind CSS, and Socket.IO. It talks to a **stateless, single-room, anonymous real-time chat transport** (see `../simple-express-backend`) — there is no database, no sessions, and no message-history endpoint on the backend.
+**Reference Application**: Support Chat Platform — `simple-vite-front` (React/Vite Frontend)  
+**Repository**: [https://github.com/sujanustc/ostad-capstan-frontend](https://github.com/sujanustc/ostad-capstan-frontend)  
+**Backend Repository**: [https://github.com/sujanustc/ostad-capstan-backend](https://github.com/sujanustc/ostad-capstan-backend)  
+**Docker Hub Registry**: [https://hub.docker.com/repositories/dasujandb](https://hub.docker.com/repositories/dasujandb) (`dasujandb`)  
+**Target Environment**: AWS EC2 (`13.203.161.35`) running K3s & Argo CD  
 
-## Features
+---
 
-- Anonymous users — no signup or login. A `userId` is created on first visit and reused from `localStorage` on return visits.
-- Real-time messaging over Socket.IO only — there is no REST send/fetch for messages. Sending is a fire-and-forget `send_message` emit; the only confirmation is the room-wide `message_received` broadcast (which includes the sender).
-- Optimistic UI: an outgoing message renders immediately as `pending`, then is reconciled with the server's copy when it comes back over the socket (matched by sender + text, since the server doesn't echo a client-side id). A message that never comes back within a few seconds — or is rejected (e.g. rate-limited) — is marked `failed`.
-- Chat history lives entirely in the browser (`localStorage`, capped to the last 500 messages) — the backend keeps nothing, so a reload restores prior messages locally while the socket rejoins the room live.
-- Typing indicators in both directions, debounced.
-- Chat appearance (colors, radius) is fetched from the backend at startup (`GET /api/config/chat`) and applied via CSS variables — nothing is hard-coded.
-- Connection status indicator with automatic reconnection handling (re-joins the room on reconnect).
-- Loading skeleton, empty state, message entrance animations, toast error notifications.
-- Fully responsive: centered floating widget on desktop, full-screen on mobile.
-- Accessible: keyboard navigation, aria-labels, focus states, screen-reader-friendly live regions.
+## 📄 WRITTEN ENGINEERING NOTE: DECISIONS & RATIONALE
 
-## Tech stack
+This document serves as the official project submission note explaining the architectural and engineering decisions made throughout the delivery pipeline implementation.
 
-- React 19 + TypeScript
-- Vite
-- Tailwind CSS v4
-- Socket.IO Client
-- Axios
-- Lucide React (icons)
+### 1. Source Control & Branching Strategy
+We implemented a long-lived environment-branching model consisting of three core branches: **`dev`**, **`stage`**, and **`prod`**.
 
-## Project structure
+* **`dev` Branch**: Baseline integration branch. Feature branches merge into `dev` via Pull Requests. It represents active development.
+* **`stage` Branch**: Pre-production validation branch. Code is promoted from `dev` to `stage` via PR after development verification.
+* **`prod` Branch**: Production release state. Code promotion occurs strictly via Pull Requests from `stage`.
 
-```
-src/
-  components/Chat/
-    ChatBox.tsx           # top-level container, applies theme + layout
-    ChatHeader.tsx         # avatar, title, status, minimize
-    MessageList.tsx        # scrollable list, skeleton, auto-scroll
-    MessageBubble.tsx       # single message bubble + timestamp/status
-    MessageInput.tsx        # textarea, send button, char counter
-    TypingIndicator.tsx     # animated "Agent is typing..." bubble
-    ConnectionStatus.tsx    # connecting/reconnecting/offline banner
-    EmptyChat.tsx            # empty-state illustration + copy
-    Toast.tsx                # error/info toast stack
-  hooks/
-    useChat.ts             # bootstrap, message state, send/typing/reconciliation logic
-    useSocket.ts            # socket lifecycle + connection state
-    useToast.ts              # toast queue
-  services/
-    api.ts                 # REST client (axios) — just anonymous user + chat config
-    socket.ts                # Socket.IO client singleton
-  types/chat.ts             # shared TypeScript types (wire-format-matching)
-  utils/storage.ts           # localStorage helpers for userId + message history
-```
+**Rationale**: This branching model mirrors physical environment separation, providing a transparent promotion path (`feature` → `dev` → `stage` → `prod`) inspectable by any engineer through Git branch history without external documentation.
 
-## Getting started
+---
 
-```bash
-npm install
-cp .env.example .env   # adjust if your backend runs elsewhere
-npm run dev
-```
+### 2. Continuous Integration & Continuous Delivery (CI/CD) Triggers
 
-The app runs at `http://localhost:5173` by default.
+Per the assignment's non-negotiable constraints:
 
-### Environment variables
+* **Dev & Stage Environments (Manual Trigger)**:
+  * Pushing code to `dev` or `stage` automatically triggers CI linting, type-checking, building, and pushing Docker images (`dasujandb/support-chat-frontend:${ENV}-${SHA}-${TIMESTAMP}`).
+  * However, deployment to the running Kubernetes environment requires an explicit **manual human decision** (triggered via GitHub Actions `workflow_dispatch` or manual Argo CD Application sync).
+  * *Rationale*: Prevents unreviewed or in-progress code from automatically overwriting running dev/stage environments.
 
-| Variable | Description | Default |
-| --- | --- | --- |
-| `VITE_API_URL` | Base URL of the Express REST API | `http://localhost:5000` |
-| `VITE_SOCKET_URL` | Base URL of the Socket.IO server | `http://localhost:5000` |
+* **Production Environment (Automatic Trigger on PR Open)**:
+  * Opening a Pull Request targeting `prod` automatically triggers the production build pipeline (`ci-cd-prod-auto.yml`).
+  * The pipeline builds optimized production containers (`nginx:alpine`), updates the Kubernetes deployment manifest image tags in `k8s/prod/frontend.yaml`, and commits back to Git.
+  * Argo CD (with `automated` sync policy enabled for `prod`) instantly reconciles the live production cluster state.
+  * *Rationale*: Opening a PR to `prod` represents the explicit decision to release; automating validation, image tagging, and deployment upon PR creation ensures a zero-friction, auditable production deployment without separate manual deployment steps.
 
-## Backend contract
+---
 
-This frontend is built against `../simple-express-backend`'s API (see its README for full details). There is no `sessionId` anywhere — every client joins one implicit room, `support-room`.
+### 3. Containerization & Versioning Scheme
 
-**REST**
+Two distinct Dockerfiles were engineered for the frontend:
 
-- `POST /api/users/anonymous` → `{ userId }`
-- `GET /api/config/chat` → `{ chat: { primaryColor, secondaryColor, userMessageColor, agentMessageColor, textColor, backgroundColor, headerColor, headerTextColor, inputBackgroundColor, borderRadius } }`
-- `GET /api/health` → `{ status: "ok" }`
+* **Development Image (`Dockerfile.dev`)**:
+  * Runs Vite dev server with hot reloading enabled (`NODE_ENV=development`).
+  * Optimized for rapid iteration and live developer debugging.
 
-**Socket.IO**
+* **Production Image (`Dockerfile.prod`)**:
+  * Multi-stage build process.
+  * **Stage 1**: Compiles Vite assets (`npm run build`) with target environment API/Socket URLs.
+  * **Stage 2**: Serves built static assets via lightweight, production-tuned `nginx:alpine`.
 
-- Client emits: `join_chat { userId, role }`, `send_message { userId, role, message }`, `typing { userId, role }`, `stop_typing { userId, role }`, `leave_chat`
-- Server emits: `joined_chat`, `message_received { messageId, senderId, senderType, message, createdAt }` (broadcast to everyone, including the sender), `user_joined`, `user_left`, `user_typing`, `user_stop_typing`, `error { code, message }`
+* **Traceable Versioning Scheme**:
+  * Format: `${ENVIRONMENT}-${GIT_COMMIT_SHA_SHORT}-${BUILD_TIMESTAMP}`
+  * Example Tag: `prod-8baeeea-202608270208`
+  * *Rationale*: Avoids ambiguity caused by mutable `latest` tags, guaranteeing exact auditability back to the source commit and build date months later.
 
-To run the full stack locally:
+---
 
-1. `cd ../simple-express-backend && npm install && cp .env.example .env && npm run dev`
-2. `cd ../simple-vite-front && npm install && npm run dev`
-3. Open the app — a new anonymous `userId` is created automatically on first load and reused on subsequent visits via `localStorage`; message history is restored from `localStorage` while the socket rejoins `support-room` live.
+### 4. Kubernetes Delivery (Workloads & Services, No Ingress)
 
-## Available scripts
+* **Cluster Infrastructure**: K3s installed on AWS EC2 (`13.203.161.35`), providing a lightweight, CNCF-compliant Kubernetes runtime.
+* **Namespace Isolation**: Workloads are isolated into `dev`, `stage`, and `prod` Kubernetes namespaces.
+* **Networking (No Ingress)**:
+  * Per assignment constraints prohibiting Ingress resources, external exposure is achieved via **NodePort** services.
+  * **Port Mapping**:
+    * `dev`: Frontend NodePort `30002` (Backend NodePort `30001`)
+    * `stage`: Frontend NodePort `30012` (Backend NodePort `30011`)
+    * `prod`: Frontend NodePort `30022` (Backend NodePort `30021`)
 
-- `npm run dev` — start the Vite dev server
-- `npm run build` — type-check and build for production
-- `npm run preview` — preview the production build locally
-- `npm run lint` — run ESLint
-- merge conflict in local
-- merge conflict fs
-<<<<<<< Updated upstream
-- dfhushdf 
-=======
-- ahdsfhdsfhid sfiojd 
->>>>>>> Stashed changes
+---
 
+### 5. GitOps Delivery via Argo CD
 
-<!-- stage feature test update -->
+* **Argo CD UI**: Accessible at `https://13.203.161.35:30808`.
+* **Declarative Management**: 6 Argo CD Application manifests monitor the `k8s/` manifests directory in Git.
+* **Sync Policies**:
+  * `support-chat-frontend-dev` & `stage`: `Manual` Sync Policy.
+  * `support-chat-frontend-prod`: `Automated` Sync Policy (`prune: true`, `selfHeal: true`).
+
+---
+
+### 6. Observability & Alerting (Bonus Extension)
+
+Integrated an automated Telegram notification step into `.github/workflows/ci-cd-prod-auto.yml` that posts real-time deployment alerts (repo, target environment, container image tag, and Argo CD sync status) directly to a Telegram channel upon production releases.
+
+---
+
+## 🌐 LIVE DEPLOYMENT ACCESS MATRIX (AWS EC2: 13.203.161.35)
+
+| Environment | Component | Public URL | NodePort | Argo CD Sync Policy |
+| :--- | :--- | :--- | :--- | :--- |
+| **Dev** | **Frontend UI** | [http://13.203.161.35:30002](http://13.203.161.35:30002) | `30002` | Manual |
+| **Dev** | **Backend API** | [http://13.203.161.35:30001/api/config/chat](http://13.203.161.35:30001/api/config/chat) | `30001` | Manual |
+| **Staging** | **Frontend UI** | [http://13.203.161.35:30012](http://13.203.161.35:30012) | `30012` | Manual |
+| **Staging** | **Backend API** | [http://13.203.161.35:30011/api/config/chat](http://13.203.161.35:30011/api/config/chat) | `30011` | Manual |
+| **Production** | **Frontend UI** | [http://13.203.161.35:30022](http://13.203.161.35:30022) | `30022` | Automated |
+| **Production** | **Backend API** | [http://13.203.161.35:30021/api/config/chat](http://13.203.161.35:30021/api/config/chat) | `30021` | Automated |
+| **Platform** | **Argo CD UI** | [https://13.203.161.35:30808](https://13.203.161.35:30808) | `30808` | N/A |
