@@ -1,0 +1,15 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: support-chat-frontend-stage
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/sujanustc/ostad-capstan-frontend.git'
+    targetRevision: stage
+    path: k8s/stage
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: stage
+  syncPolicy: {}
