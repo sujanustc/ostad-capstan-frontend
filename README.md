@@ -8,11 +8,19 @@
 
 ---
 
-## 🖼️ LIVE APPLICATION DEMONSTRATION
+## 🖼️ SYSTEM DEMONSTRATION & PROOF OF DEPLOYMENT
 
-![Support Chat Live Application](docs/images/live_app.png)
+### 1. Production Frontend UI
+![Frontend UI Demonstration](docs/images/frontend_app.png)
+*Figure 1: Live Support Chat React/Vite Frontend running on Kubernetes Production (`http://13.203.161.35:30022`).*
 
-*Figure 1: Live Support Chat application running on Kubernetes across AWS EC2 (`http://13.203.161.35:30022`).*
+### 2. Production Backend API (Express + Socket.IO)
+![Backend API Response](docs/images/backend_api.png)
+*Figure 2: Live Backend API configuration endpoint (`http://13.203.161.35:30021/api/config/chat`) returning HTTP 200 JSON payload.*
+
+### 3. Argo CD GitOps Dashboard
+![Argo CD Dashboard](docs/images/argocd_dashboard.png)
+*Figure 3: Argo CD Platform Dashboard (`https://13.203.161.35:30808`) managing K8s workloads across dev, stage, and prod.*
 
 ---
 
